@@ -96,7 +96,6 @@ const crimeData = await d3.csv("./data/sample_by_year.csv", (d) => {
 // create a dropdown menu for selecting the crime type to filter the points on the map
 const dropDown = d3.select("#dropdown")
   .append("select")
-  .on("change", onDropDownChange);
 
 const dropDownOptions = dropDown.selectAll("option")
   .data(["ALL CRIMES", ...crimeTypes])
@@ -105,10 +104,12 @@ const dropDownOptions = dropDown.selectAll("option")
   .text(function(d) { return d; })
   .attr("value", function(d) { return d; });
 
-  function onDropDownChange() {
-    const selectedCrime = dropDown.property("value");
-    console.log("Selected crime type:", selectedCrime);
-  }
+
+// creates a tooltip
+const tooltip = d3.select("body")
+  .append("div")
+  .attr("class", "tooltip")
+  .style("opacity", 0);
 
 // set up the slider for selecting the year range (2001-2026)
 const sliderSvg = d3.select("#slider")
@@ -148,9 +149,22 @@ function renderPoints(year) {
       .attr("fill", d => colorScale(d.crime))
       .attr("r", 0)
       .attr("opacity", 0)
+      .on("mouseover", (event, d) => {
+        tooltip.style("opacity", 1)
+          .html(d.crime + "</b><br/>Year: " + d.year + "<br/>(" + d.lat.toFixed(3) + ", " + d.lon.toFixed(3) + ")");
+        d3.select(event.currentTarget).attr("stroke-width", 1.5);
+      })
+      .on("mousemove", (event) => {
+        tooltip.style("left", (event.pageX + 12) + "px")
+          .style("top", (event.pageY + 12) + "px");
+      })
+      .on("mouseout", (event) => {
+        tooltip.style("opacity", 0);
+        d3.select(event.currentTarget).attr("stroke-width", 0);
+      })
       .call(enter => enter.transition(time)
         .attr("r", 3)
-        .attr("opacity", 1)
+        .attr("opacity", 0.7)
         ),
       update => update
       .call(update => update.transition(time)
@@ -158,7 +172,7 @@ function renderPoints(year) {
         .attr("cy", d => projection([d.lon, d.lat])[1])
         .attr("fill", d => colorScale(d.crime))
         .attr("r", 3)
-        .attr("opacity", 1)
+        .attr("opacity", 0.7)
         ),
       exit => exit
         .transition(time)
@@ -167,3 +181,4 @@ function renderPoints(year) {
         .remove()
         );
 }
+
