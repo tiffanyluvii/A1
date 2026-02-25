@@ -1,3 +1,4 @@
+let points = null;
 const width = 1500;
 const height = 800;
 const crimeTypes = ['CRIMINAL SEXUAL ASSAULT','BATTERY','THEFT','MOTOR VEHICLE THEFT','OTHER OFFENSE','CRIMINAL DAMAGE','NARCOTICS','LIQUOR LAW VIOLATION',
@@ -59,7 +60,7 @@ const projection = d3.geoMercator()
 const path = d3.geoPath().projection(projection);
 
 g.selectAll("path")
-    .data(chicago.features ? chicago.features : [chicago]) // works for FeatureCollection or single Feature
+    .data([chicago])
     .join("path")
     .attr("class", "chicagoMap")
     .attr("d", path)
@@ -70,12 +71,12 @@ g.selectAll("path")
 
 
 // creates the zoom behavior for the map 
-const zoom = d3.zoom()
-  .scaleExtent([1, 8])
-  .on("zoom", (event) => {
-    g.attr("transform", event.transform);
-});
-svg.call(zoom);
+// const zoom = d3.zoom()
+//   .scaleExtent([1, 8])
+//   .on("zoom", (event) => {
+//     g.attr("transform", event.transform);
+// });
+// svg.call(zoom);
 
 // process the .csv file and visualize the crime data
 
@@ -101,8 +102,8 @@ const dropDownOptions = dropDown.selectAll("option")
   .data(["ALL CRIMES", ...crimeTypes])
   .enter()
   .append("option")
-  .text(function(d) { return d; })
-  .attr("value", function(d) { return d; });
+  .text(d => d)
+  .attr("value", d => d);
 
 
 // creates a tooltip
@@ -129,6 +130,8 @@ const yearSlider = d3.sliderBottom()
     renderPoints(val);
   });
 
+renderPoints(2001);
+
 sliderSvg.append("g")
   .attr("transform", "scale(1.4)")
   .call(yearSlider);
@@ -140,7 +143,7 @@ function renderPoints(year) {
 
   const time = g.transition().duration(450);
 
-  g.selectAll("circle")
+  points = g.selectAll("circle")
     .data(filtered, d => `${d.year}-${d.lat}-${d.lon}-${d.crime}`)
     .join(
       enter => enter.append("circle")
@@ -168,7 +171,7 @@ function renderPoints(year) {
         ),
       update => update
       .call(update => update.transition(time)
-        .attr("cx", d => projection([d.lon, d.lat])[0])
+        .attr("cx", d => projection([d.lon, d.lat])[0] + xOffset)
         .attr("cy", d => projection([d.lon, d.lat])[1])
         .attr("fill", d => colorScale(d.crime))
         .attr("r", 3)
@@ -182,3 +185,127 @@ function renderPoints(year) {
         );
 }
 
+
+// establish a connection within the dataset
+
+const brush = d3.brush().extent([[xOffset, 0], [xOffset + width, mapH]]).on("brush end", brushed);
+g.append("g").attr("class", "brush").call(brush);
+
+
+function brushed(event, year){
+  if (!points) return;
+
+  const selection = event.selection;
+  if (!selection){
+    const year = yearSlider.value();
+    points.classed("selected", false).attr("opacity", 0.6);
+    updateViews(crimeData.filter(d => d.year === year));
+    return;
+  }
+
+  const [[x, y], [x2, y2]] = selection;
+  const selected = [];
+
+  points.each(function (d){
+    const cx = projection([d.lon, d.lat])[0] + xOffset;
+    const cy = projection([d.lon, d.lat])[1];
+
+    const box = x <= cx && cx <= x2 && y <= cy && cy <= y2;
+
+    d3.select(this).classed("selected", box).attr("opacity", box ? 1 : 0.15).sort((a,b) => d3.descending(a.count, b.count));
+
+    if (box) selected.push(d);
+
+  });
+  updateViews(selected);
+}
+
+function updateViews(data){
+  const crimeCount = d3.rollups(
+    data, 
+    v => v.length,
+    d => d.crime)
+    .map(([crime, count]) => ({crime, count}))
+
+    renderBars(crimeCount);
+}
+
+const barMargin = { top: 30, right: 20, bottom: 100, left: 80 };
+const barH = height - barMargin.top - barMargin.bottom;
+const barW = width - barMargin.left - barMargin.right;
+const barChartSvg = d3.select('#bar-vis')
+    .append('svg')
+    .attr('width', width)
+    .attr('height', height);
+
+const barG = barChartSvg.append('g').attr("transform", `translate(${barMargin.left},${barMargin.top})`);
+const xAxisG = barG.append('g').attr("class", "x-axis").attr("transform", `translate(0, ${barH})`)
+const yAxisG = barG.append('g').attr("class", "y-axis")
+
+barChartSvg.append('text')
+      .attr('class', 'axis-label')
+      .attr('x', (barW / 2) + 50 )
+      .attr('y', barH + 125)
+      .style('text-anchor', 'middle')
+      .text('Crime Types')
+      .style("font-weight", "bold")
+      .style("font-size", "20");
+      
+
+  barChartSvg.append('text')
+      .attr('class', 'axis-label')
+      .attr('transform', 'rotate(-90)')
+      .attr('x', -barH / 2)
+      .attr('y', barMargin.left - 40)
+      .style('text-anchor', 'middle')
+      .text('Count')
+      .style("font-weight", "bold")
+      .style("font-size", "20");;
+
+function renderBars(crimeCount){
+
+  console.log(crimeCount);
+  const data = crimeCount.slice(0, 10);
+
+  const xScale = d3.scaleBand().domain(data.map(d => d.crime)).range([0 , barW])
+  const yScale = d3.scaleLinear().domain([0, d3.max(data, d => d.count) ?? 0]).range([barH, 0]);
+
+  barG.selectAll("rect")
+  .data(data, d => d.crime)
+  .join(
+    enter => enter.append("rect")
+      .attr("x", d => xScale(d.crime))
+      .attr("width", xScale.bandwidth())
+      .attr("y", barH)     
+      .attr("height", 0)
+      .attr("opacity", 0.85)
+      .attr("y", d => yScale(d.count))
+      .attr("height", d => barH - yScale(d.count))
+      .attr("fill", d => colorScale(d.crime))
+      .attr("stroke", "black"),
+
+    update => update
+      .attr("x", d => xScale(d.crime))
+      .attr("width", xScale.bandwidth())
+      .attr("y", d => yScale(d.count))
+      .attr("height", d => barH - yScale(d.count)),
+
+    exit => exit
+      .attr("y", barH)
+      .attr("height", 0)
+      .remove()
+  );
+
+
+  xAxisG.call(d3.axisBottom(xScale))
+    .selectAll("text")
+    .attr("transform", "rotate(-25)")
+    .style("text-anchor", "end");
+
+  yAxisG.call(d3.axisLeft(yScale));
+
+}
+
+updateViews(crimeData.filter(d => d.Year === 2001))
+
+// create a bar chart that counts all the crimes and clearly shows the top ten most common crimes in Chicago
